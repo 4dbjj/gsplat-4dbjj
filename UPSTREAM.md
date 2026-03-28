@@ -22,9 +22,14 @@ published research papers. No code was copied from any research repository.
 
 | Module | Derives from | Equations |
 |---|---|---|
-| `fourDbjj/deformation/spline.py` | TBD | TBD |
-| `fourDbjj/deformation/field.py` | TBD | TBD |
-| `fourDbjj/losses/` | TBD | TBD |
+| `fourDbjj/deformation/spline.py` | Catmull & Rom (1974), Computer Aided Geometric Design | CR basis matrix, §3 |
+| `fourDbjj/deformation/rotation.py` | Shoemaker (1985), SIGGRAPH '85 | SLERP eq. 2 |
+| `fourDbjj/deformation/opacity.py` | Gaussian function — public domain math | α(t) = α_base · exp(-(t-τ)²/2σ²) |
+| `fourDbjj/flow/raft_estimator.py` | Teed & Deng (2020), ECCV — torchvision RAFT (BSD 3-Clause) | N/A (wrapper) |
+| `fourDbjj/flow/flow_to_3d.py` | Hartley & Zisserman (2003), MVG Ch. 6 | Perspective projection |
+| `fourDbjj/flow/init_control_pts.py` | Original 4DBJJ design | Velocity-seeded control point init |
+| `fourDbjj/scene/dynamic_gaussians.py` | Original 4DBJJ design | Wires μ(t), q(t), α(t) into gsplat.rasterization |
+| `fourDbjj/losses/triple_rendering.py` | Kerbl et al. (2023) SIGGRAPH + original 4DBJJ | L_RGB + λ_flow·L_Flow + λ_triple·L_Triple |
 
 ## How to pull upstream improvements
 
