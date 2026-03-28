@@ -1,4 +1,104 @@
-# gsplat
+# gsplat-4dbjj
+
+> **4DBJJ fork** of [nerfstudio-project/gsplat](https://github.com/nerfstudio-project/gsplat) (Apache 2.0).
+> All 4DBJJ additions live under `fourDbjj/`. Upstream gsplat code in `gsplat/` is untouched except where marked `# 4DBJJ PATCH`.
+> See [UPSTREAM.md](UPSTREAM.md) for the IP boundary and module inventory.
+
+---
+
+## Syncing with upstream gsplat
+
+Run this whenever you want to pull the latest gsplat improvements into our branch.
+Tell Claude: **"sync upstream gsplat into fourDbjj/temporal-gaussians"** and it will follow these steps.
+
+```bash
+# 1. Make sure you are on our branch and the working tree is clean
+git checkout fourDbjj/temporal-gaussians
+git status                          # should show "nothing to commit"
+
+# 2. Fetch the latest commits from nerfstudio-project/gsplat
+git fetch upstream
+
+# 3. Check how many new commits exist upstream (0 = already up to date)
+git log --oneline HEAD..upstream/main
+
+# 4. Merge upstream into our branch
+git merge upstream/main --no-edit
+
+# 5. Resolve any conflicts — our code ALWAYS wins over upstream in fourDbjj/
+#    If gsplat/ files conflict, prefer upstream's version (it's their code).
+#    If fourDbjj/ files conflict, keep our version.
+#    Mark every conflict resolution with a comment:  # 4DBJJ PATCH
+
+# 6. Run the syntax check to confirm nothing broke
+python3 -c "
+import ast
+for f in ['fourDbjj/deformation/spline.py','fourDbjj/deformation/rotation.py',
+          'fourDbjj/deformation/opacity.py','fourDbjj/flow/raft_estimator.py',
+          'fourDbjj/flow/flow_to_3d.py','fourDbjj/flow/init_control_pts.py',
+          'fourDbjj/scene/dynamic_gaussians.py','fourDbjj/losses/triple_rendering.py']:
+    ast.parse(open(f).read()); print('OK', f)
+"
+
+# 7. Push
+git push origin fourDbjj/temporal-gaussians
+```
+
+### Sync history
+
+| Date | Upstream commit merged | New upstream commits | Notes |
+|---|---|---|---|
+| 2026-03-28 | `e60d0e3` (fork point) | 0 — already up to date | Initial fork |
+
+Update this table each time you run a sync.
+
+---
+
+## 4DBJJ motion engine (`fourDbjj/`)
+
+| Module | Purpose | Paper basis |
+|---|---|---|
+| `fourDbjj/deformation/spline.py` | Per-Gaussian position trajectory (Catmull-Rom) | Catmull & Rom (1974) |
+| `fourDbjj/deformation/rotation.py` | Per-Gaussian rotation trajectory (SLERP) | Shoemaker, SIGGRAPH '85 |
+| `fourDbjj/deformation/opacity.py` | Temporal Gaussian opacity window α(t) | Public domain math |
+| `fourDbjj/flow/raft_estimator.py` | Dense 2D optical flow (torchvision RAFT) | Teed & Deng, ECCV 2020 |
+| `fourDbjj/flow/flow_to_3d.py` | 2D flow + depth → 3D velocity | Hartley & Zisserman Ch.6 |
+| `fourDbjj/flow/init_control_pts.py` | Seeds spline from flow-estimated velocity | Original 4DBJJ |
+| `fourDbjj/scene/dynamic_gaussians.py` | Wires μ(t), q(t), α(t) into `gsplat.rasterization` | Original 4DBJJ |
+| `fourDbjj/losses/triple_rendering.py` | L_RGB + λ_flow·L_Flow + λ_triple·L_Triple | Original 4DBJJ |
+
+### Quick usage
+
+```python
+from fourDbjj import DynamicGaussians, total_loss, RaftEstimator, init_control_points_from_flow
+
+# Build model
+model = DynamicGaussians(num_gaussians=N, num_ctrl_pts=8, num_frames=T)
+model.load_from_static_splat(phase1_splats)   # from phase-1 3DGS training
+
+# Seed spline from RAFT flow
+raft = RaftEstimator("large")
+flows = raft.estimate_sequence(frames)
+init_control_points_from_flow(model.spline, means3d, flows, depths, viewmats, fx, fy, cx, cy)
+
+# Training loop
+t = torch.tensor(frame_idx / (T - 1))
+render, alpha, meta = model.render(t, viewmats, Ks, W, H)
+loss, log = total_loss(render[0], gt, meta["means2d"].squeeze(0),
+                       means2d_t1, flow_raft, render_minus, render_plus)
+loss.backward()
+```
+
+---
+
+## License
+
+`gsplat/` — Apache 2.0 (nerfstudio-project/gsplat, see LICENSE).
+`fourDbjj/` — Proprietary (4DBJJ Inc.). All rights reserved.
+
+---
+
+# Original gsplat README
 
 [![Core Tests.](https://github.com/nerfstudio-project/gsplat/actions/workflows/core_tests.yml/badge.svg?branch=main)](https://github.com/nerfstudio-project/gsplat/actions/workflows/core_tests.yml)
 [![Docs](https://github.com/nerfstudio-project/gsplat/actions/workflows/doc.yml/badge.svg?branch=main)](https://github.com/nerfstudio-project/gsplat/actions/workflows/doc.yml)
