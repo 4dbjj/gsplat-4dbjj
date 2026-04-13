@@ -184,7 +184,12 @@ def flow_consistency_loss(
     )
     raft_flow_at_gaussians = sampled.squeeze(0).squeeze(-1).T  # (N, 2)
 
-    return F.l1_loss(rendered_flow, raft_flow_at_gaussians)
+    # Normalise both flows by the image's long edge so the loss is dimensionless
+    # (range 0–1 per axis) and comparable to the RGB L1 loss.  Without this,
+    # pixel-space values of 10–115 px overwhelm the RGB loss (~0.03) even at
+    # lambda_flow=0.01.  After normalisation, lambda_flow=0.1 is appropriate.
+    scale = float(max(H, W))
+    return F.l1_loss(rendered_flow / scale, raft_flow_at_gaussians / scale)
 
 
 # ────────────────────────────────────────────────────────────────────────────
