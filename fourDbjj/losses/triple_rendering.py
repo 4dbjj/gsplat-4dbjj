@@ -156,38 +156,62 @@ def flow_consistency_loss(
                      If None, uses all N Gaussians.
 
     Returns:
-        loss: scalar L1 flow consistency loss.
+        loss: scalar L1 flow consistency loss, computed over visible Gaussians
+              only. Out-of-frustum Gaussians are excluded — sampling RAFT flow
+              with padding_mode='border' at off-screen coordinates returns the
+              edge flow, which generates a misleading gradient that pulls
+              already-drifting Gaussians further off-screen. This was a major
+              contributor to needle-spike artefacts in v4–v6 renders.
     """
     if gaussian_ids is not None:
         means2d_t  = means2d_t[gaussian_ids]
         means2d_t1 = means2d_t1[gaussian_ids]
 
-    # Rendered flow per Gaussian: shape (N, 2)
-    rendered_flow = means2d_t1 - means2d_t
-
     H, W, _ = flow_raft.shape
     device = means2d_t.device
 
-    # Sample RAFT flow at each Gaussian's t-position using bilinear interpolation
-    # Normalise to [-1, 1] for grid_sample
+    # Visibility mask: only Gaussians whose t-position lies inside the image
+    # contribute to the flow loss. Detached so it doesn't gradient through
+    # the comparison itself.
     u = means2d_t[:, 0]
     v = means2d_t[:, 1]
+    visible = (
+        (u >= 0) & (u < W)
+        & (v >= 0) & (v < H)
+        & torch.isfinite(u) & torch.isfinite(v)
+    ).detach()
+
+    if not bool(visible.any()):
+        # All Gaussians off-screen — return zero with grad to keep the graph alive.
+        return (means2d_t.sum() * 0.0).to(means2d_t.dtype)
+
+    means2d_t = means2d_t[visible]
+    means2d_t1 = means2d_t1[visible]
+    u = means2d_t[:, 0]
+    v = means2d_t[:, 1]
+
+    # Rendered flow per visible Gaussian: shape (N_vis, 2)
+    rendered_flow = means2d_t1 - means2d_t
+
+    # Sample RAFT flow at each visible Gaussian's t-position using bilinear interp
     grid_x = (u / (W - 1)) * 2 - 1
     grid_y = (v / (H - 1)) * 2 - 1
 
-    grid = torch.stack([grid_x, grid_y], dim=-1)  # (N, 2)
-    grid = grid.unsqueeze(0).unsqueeze(2)           # (1, N, 1, 2)
+    grid = torch.stack([grid_x, grid_y], dim=-1)  # (N_vis, 2)
+    grid = grid.unsqueeze(0).unsqueeze(2)           # (1, N_vis, 1, 2)
 
     flow_chw = flow_raft.permute(2, 0, 1).unsqueeze(0).to(device)  # (1, 2, H, W)
+    # padding_mode='zeros' is now safe (and correct) because we filtered to
+    # visible-only; no Gaussian should land outside the frame here. We keep
+    # 'border' as belt-and-braces in case of subpixel rounding at the edge.
     sampled = F.grid_sample(
         flow_chw, grid, mode="bilinear", padding_mode="border", align_corners=True
     )
-    raft_flow_at_gaussians = sampled.squeeze(0).squeeze(-1).T  # (N, 2)
+    raft_flow_at_gaussians = sampled.squeeze(0).squeeze(-1).T  # (N_vis, 2)
 
     # Normalise both flows by the image's long edge so the loss is dimensionless
-    # (range 0–1 per axis) and comparable to the RGB L1 loss.  Without this,
-    # pixel-space values of 10–115 px overwhelm the RGB loss (~0.03) even at
-    # lambda_flow=0.01.  After normalisation, lambda_flow=0.1 is appropriate.
+    # (range 0–1 per axis) and comparable to the RGB L1 loss. After
+    # normalisation, lambda_flow=0.1 is appropriate.
     scale = float(max(H, W))
     return F.l1_loss(rendered_flow / scale, raft_flow_at_gaussians / scale)
 
